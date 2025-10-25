@@ -25,7 +25,7 @@ templates = Jinja2Templates(directory="templates")
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
-    'password': 'Sonbui@2005',
+    'password': 'Duc2005@',
     'database': 'clothing_shop',
     'charset': 'utf8mb4'
 }
