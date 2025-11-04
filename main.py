@@ -16,6 +16,9 @@ import socket
 from config import settings
 from db import get_db_connection, init_connection_pool
 from auth import hash_password, verify_password
+from utils import login_limiter, register_limiter
+
+from contextlib import asynccontextmanager
 
 # Configure logging
 logging.basicConfig(
@@ -24,14 +27,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Clothing Shop", debug=settings.debug)
 
-# Initialize connection pool on startup
-@app.on_event("startup")
-async def startup_event():
-    """Initialize resources on application startup."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan."""
+    # Startup
     init_connection_pool()
     logger.info("Application started successfully")
+    yield
+    # Shutdown (if needed in the future)
+    logger.info("Application shutting down")
+
+
+app = FastAPI(title="Clothing Shop", debug=settings.debug, lifespan=lifespan)
 
 # Tạo thư mục
 os.makedirs("static/css", exist_ok=True)
@@ -44,7 +52,15 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 
-def get_current_user(request: Request):
+def get_current_user(request: Request) -> Optional[Dict[str, str]]:
+    """Get current authenticated user from cookies.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        Dictionary with user_id, username, and role if authenticated, None otherwise
+    """
     user_id = request.cookies.get("user_id")
     username = request.cookies.get("username")
     role = request.cookies.get("role")
@@ -58,6 +74,14 @@ def get_current_user(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
+    """Render the home page with featured products.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        HTML response with home page
+    """
     current_user = get_current_user(request)
 
     featured_products = []
@@ -96,6 +120,19 @@ async def products(
         page: int = 1,
         per_page: int = 12
 ):
+    """Render products page with filtering and pagination.
+    
+    Args:
+        request: FastAPI request object
+        category: Filter by category name
+        brand: Filter by brand name
+        search: Search term for product name
+        page: Page number for pagination (default 1)
+        per_page: Items per page (default 12)
+        
+    Returns:
+        HTML response with products page
+    """
     current_user = get_current_user(request)
     products_list = []
     categories = []
@@ -220,6 +257,27 @@ async def login(
         username: str = Form(...),
         password: str = Form(...)
 ):
+    """Handle user login with rate limiting.
+    
+    Args:
+        request: FastAPI request object
+        username: Username from form
+        password: Password from form
+        
+    Returns:
+        Redirect to home or login page with error
+    """
+    # Get client IP for rate limiting
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # Check rate limit
+    if not login_limiter.is_allowed(client_ip):
+        logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": "Quá nhiều lần thử đăng nhập. Vui lòng thử lại sau 5 phút."
+        })
+    
     db = get_db_connection()
     if not db:
         logger.error("Database connection failed during login")
@@ -272,6 +330,30 @@ async def register(
         fullname: str = Form(...),
         phone: str = Form(...)
 ):
+    """Handle user registration with rate limiting.
+    
+    Args:
+        request: FastAPI request object
+        username: Desired username
+        password: Password
+        confirm_password: Password confirmation
+        fullname: User's full name
+        phone: Phone number
+        
+    Returns:
+        Redirect to login or register page with error
+    """
+    # Get client IP for rate limiting
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # Check rate limit
+    if not register_limiter.is_allowed(client_ip):
+        logger.warning(f"Registration rate limit exceeded for IP: {client_ip}")
+        return templates.TemplateResponse("register.html", {
+            "request": request,
+            "error": "Quá nhiều lần đăng ký. Vui lòng thử lại sau 1 giờ."
+        })
+    
     if password != confirm_password:
         return templates.TemplateResponse("register.html", {
             "request": request,
@@ -647,7 +729,16 @@ async def remove_from_cart(
     return RedirectResponse(url="/cart", status_code=302)
 
 
-def find_available_port(start_port=8000, max_port=8010):
+def find_available_port(start_port=8000, max_port=8010) -> int:
+    """Find an available port to run the server.
+    
+    Args:
+        start_port: Starting port number to check
+        max_port: Maximum port number to check
+        
+    Returns:
+        Available port number
+    """
     for port in range(start_port, max_port + 1):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
