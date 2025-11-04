@@ -1,3 +1,7 @@
+import json
+from pydantic import BaseModel
+from fastapi.responses import StreamingResponse
+from typing import List, Dict, Any
 from fastapi import FastAPI, Request, Form, HTTPException, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -51,6 +55,7 @@ def get_current_user(request: Request):
 
 
 # ===== ROUTES =====
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     current_user = get_current_user(request)
@@ -302,6 +307,114 @@ async def logout():
     return response
 
 
+@app.get("/profile", response_class=HTMLResponse)
+async def profile_page(request: Request):
+    # 1. Kiểm tra xem người dùng đã đăng nhập chưa
+    current_user = get_current_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    user_details = None
+    db = get_db_connection()
+    if db:
+        try:
+            cursor = db.cursor(dictionary=True)
+
+            # 2. Lấy thông tin chi tiết của người dùng từ database
+            cursor.execute(
+                "SELECT tenDangNhap, ten, soDienThoai, vaiTro FROM nguoidung WHERE maND = %s",
+                (current_user['user_id'],)
+            )
+            user_details = cursor.fetchone()
+            cursor.close()
+        except Error as e:
+            print(f"Error fetching user profile: {e}")
+        finally:
+            if db.is_connected():
+                db.close()
+
+    if not user_details:
+        # Nếu không tìm thấy thông tin (dù đã đăng nhập) thì báo lỗi
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 3. Trả về file profile.html và gửi dữ liệu user_details qua
+    return templates.TemplateResponse("profile.html", {
+        "request": request,
+        "current_user": current_user,
+        "user_details": user_details
+    })
+
+
+# Hiển thị trang/form để chỉnh sửa thông tin
+@app.get("/edit_profile", response_class=HTMLResponse)
+async def edit_profile_page(request: Request):
+    current_user = get_current_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    user_details = None
+    db = get_db_connection()
+    if db:
+        try:
+            cursor = db.cursor(dictionary=True)
+            # Lấy thông tin hiện tại để điền vào form
+            cursor.execute(
+                "SELECT ten, soDienThoai FROM nguoidung WHERE maND = %s",
+                (current_user['user_id'],)
+            )
+            user_details = cursor.fetchone()
+            cursor.close()
+        except Error as e:
+            print(f"Lỗi khi lấy thông tin user để sửa: {e}")
+        finally:
+            if db.is_connected():
+                db.close()
+
+    if not user_details:
+        raise HTTPException(status_code=404, detail="Không tìm thấy người dùng")
+
+    return templates.TemplateResponse("edit_profile.html", {
+        "request": request,
+        "current_user": current_user,
+        "user_details": user_details
+    })
+
+
+# Xử lý dữ liệu khi người dùng nhấn "Lưu thay đổi"
+@app.post("/edit_profile")
+async def handle_edit_profile(
+        request: Request,
+        fullname: str = Form(...),  # Lấy "Họ và tên" từ form
+        phone: str = Form(...)  # Lấy "Số điện thoại" từ form
+):
+    current_user = get_current_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = get_db_connection()
+    if not db:
+        raise HTTPException(status_code=500, detail="Lỗi kết nối database")
+
+    try:
+        cursor = db.cursor()
+        # Câu lệnh UPDATE để cập nhật database
+        cursor.execute(
+            "UPDATE nguoidung SET ten = %s, soDienThoai = %s WHERE maND = %s",
+            (fullname, phone, current_user['user_id'])
+        )
+        db.commit()  # Lưu thay đổi
+        cursor.close()
+    except Error as e:
+        print(f"Lỗi khi cập nhật profile: {e}")
+        db.rollback()  # Hoàn tác nếu có lỗi
+    finally:
+        if db.is_connected():
+            db.close()
+
+    # Sau khi cập nhật xong, chuyển hướng người dùng về trang profile
+    return RedirectResponse(url="/profile", status_code=302)
+
+
 @app.get("/cart", response_class=HTMLResponse)
 async def cart_page(request: Request):
     current_user = get_current_user(request)
@@ -411,6 +524,96 @@ async def add_to_cart(
     return RedirectResponse(url="/cart", status_code=302)
 
 
+@app.post("/cart/update/{cart_item_id}")
+async def update_cart_item(
+        request: Request,
+        cart_item_id: int,
+        action: str = Form(...)  # Sẽ nhận giá trị "increase" hoặc "decrease"
+):
+    current_user = get_current_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = get_db_connection()
+    if not db:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cursor = db.cursor(dictionary=True)
+
+        # Lấy số lượng hiện tại của item và số lượng tồn kho (stock)
+        cursor.execute("""
+                       SELECT ctgh.soLuong, sp.soLuong as stock
+                       FROM chitietgiohang ctgh
+                                JOIN sanpham sp ON ctgh.maSP = sp.maSP
+                       WHERE ctgh.maCTGH = %s
+                       """, (cart_item_id,))
+        item = cursor.fetchone()
+
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+
+        new_quantity = item['soLuong']
+
+        # Logic tăng/giảm
+        if action == "increase" and item['soLuong'] < item['stock']:
+            new_quantity += 1
+        elif action == "decrease" and item['soLuong'] > 1:
+            new_quantity -= 1
+
+        # Cập nhật số lượng mới vào database
+        cursor.execute(
+            "UPDATE chitietgiohang SET soLuong = %s WHERE maCTGH = %s",
+            (new_quantity, cart_item_id)
+        )
+
+        db.commit()
+        cursor.close()
+
+    except Error as e:
+        print(f"Error updating cart: {e}")
+        db.rollback()
+    finally:
+        if db.is_connected():
+            db.close()
+
+    # Tải lại trang giỏ hàng
+    return RedirectResponse(url="/cart", status_code=302)
+
+
+@app.post("/cart/remove/{cart_item_id}")
+async def remove_from_cart(
+        request: Request,
+        cart_item_id: int
+):
+    current_user = get_current_user(request)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    db = get_db_connection()
+    if not db:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cursor = db.cursor()
+
+        # Xóa thẳng item khỏi chi tiết giỏ hàng
+        cursor.execute("DELETE FROM chitietgiohang WHERE maCTGH = %s", (cart_item_id,))
+
+        db.commit()
+        cursor.close()
+
+    except Error as e:
+        print(f"Error removing from cart: {e}")
+        db.rollback()
+    finally:
+        if db.is_connected():
+            db.close()
+
+    # Tải lại trang giỏ hàng
+    return RedirectResponse(url="/cart", status_code=302)
+
+
 def find_available_port(start_port=8000, max_port=8010):
     for port in range(start_port, max_port + 1):
         try:
@@ -424,8 +627,8 @@ def find_available_port(start_port=8000, max_port=8010):
 
 if __name__ == "__main__":
     port = find_available_port()
-    print(f"🚀 Starting Clothing Shop on http://localhost:{port}")
-    print(f"📋 Available routes:")
+    print(f"   Starting Clothing Shop on http://localhost:{port}")
+    print(f"   Available routes:")
     print(f"   http://localhost:{port} - Trang chủ")
     print(f"   http://localhost:{port}/products - Sản phẩm")
     print(f"   http://localhost:{port}/login - Đăng nhập")

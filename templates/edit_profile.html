@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}Chỉnh sửa thông tin{% endblock %}
+
+{% block content %}
+
+<style>
+    .profile-card {
+        max-width: 600px;
+        margin: 2rem auto;
+        border: none;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    }
+    .profile-header {
+        background-color: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+        padding: 1.5rem;
+        border-top-left-radius: 15px;
+        border-top-right-radius: 15px;
+    }
+</style>
+
+<div class="card profile-card">
+    <div class="profile-header text-center">
+        <h1 class="h3 mb-0">Chỉnh sửa thông tin</h1>
+    </div>
+    <div class="card-body p-4">
+        
+        <form method="post" action="/edit_profile">
+            
+            <div class="mb-3">
+                <label for="fullname" class="form-label">Họ và tên:</label>
+                <input type="text" class="form-control" id="fullname" name="fullname" 
+                       value="{{ user_details.ten }}" required>
+            </div>
+            
+            <div class="mb-3">
+                <label for="phone" class="form-label">Số điện thoại:</label>
+                <input type="text" class="form-control" id="phone" name="phone" 
+                       value="{{ user_details.soDienThoai }}" required>
+            </div>
+            
+            <hr class="my-4">
+            
+            <div class="d-flex justify-content-end gap-2">
+                <a href="/profile" class="btn btn-outline-secondary">
+                    <i class="fas fa-times"></i> Hủy
+                </a>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Lưu thay đổi
+                </button>
+            </div>
+            
+        </form>
+    </div>
+</div>
+
+{% endblock %}

@@ -13,8 +13,8 @@ def find_available_port(start_port=8000, max_port=8010):
 
 if __name__ == "__main__":
     port = find_available_port()
-    print(f"🚀 Starting Clothing Shop on http://localhost:{port}")
-    print(f"📋 Available routes:")
+    print(f"   Starting Clothing Shop on http://localhost:{port}")
+    print(f"   Available routes:")
     print(f"   http://localhost:{port} - Trang chủ")
     print(f"   http://localhost:{port}/products - Sản phẩm")
     print(f"   http://localhost:{port}/login - Đăng nhập")

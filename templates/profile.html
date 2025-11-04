@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Thông tin cá nhân{% endblock %}
+
+{% block content %}
+
+<style>
+    .profile-card {
+        max-width: 600px; /* Giới hạn chiều rộng cho đẹp */
+        margin: 2rem auto; /* Căn giữa */
+        border: none;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    }
+    .profile-header {
+        background-color: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+        padding: 1.5rem;
+        border-top-left-radius: 15px;
+        border-top-right-radius: 15px;
+    }
+    .profile-body li {
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid #eee;
+    }
+    .profile-body li:last-child {
+        border-bottom: none;
+    }
+    .profile-body strong {
+        display: inline-block;
+        width: 150px; /* Căn chỉnh các tiêu đề cho thẳng hàng */
+        color: #555;
+    }
+</style>
+
+<div class="card profile-card">
+    <div class="profile-header text-center">
+        <h1 class="h3 mb-0">Thông tin cá nhân</h1>
+        <p class="text-muted mb-0">Đây là thông tin tài khoản của bạn</p>
+    </div>
+    <div class="card-body p-0">
+        <ul class="list-group list-group-flush profile-body">
+            
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <span>
+                    <strong>Tên đăng nhập:</strong>
+                    {{ user_details.tenDangNhap }}
+                </span>
+                <span class="badge bg-secondary">{{ user_details.vaiTro }}</span>
+            </li>
+            
+            <li class="list-group-item">
+                <strong>Họ và tên:</strong>
+                {{ user_details.ten }}
+            </li>
+            
+            <li class="list-group-item">
+                <strong>Số điện thoại:</strong>
+                {{ user_details.soDienThoai }}
+            </li>
+            
+            <li class="list-group-item text-center bg-light" style="border-bottom-left-radius: 15px; border-bottom-right-radius: 15px;">
+                <a href="/edit_profile" class="btn btn-outline-primary mt-2 mb-2">
+                    <i class="fas fa-edit"></i> Chỉnh sửa thông tin
+                </a>
+            </li>
+        </ul>
+    </div>
+</div>
+
+{% endblock %}

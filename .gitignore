@@ -1,0 +1,16 @@
+# Bỏ môi trường ảo
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# File môi trường
+.env
+
+# File tạm
+*.log
+*.sqlite3
