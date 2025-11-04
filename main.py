@@ -1,19 +1,37 @@
 import json
-from pydantic import BaseModel
+import logging
+from pydantic import BaseModel, EmailStr, Field
 from fastapi.responses import StreamingResponse
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, Request, Form, HTTPException, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-import mysql.connector
 from mysql.connector import Error
 import os
 import uvicorn
-from typing import Optional
 import socket
 
-app = FastAPI(title="Clothing Shop", debug=True)
+# Import custom modules
+from config import settings
+from db import get_db_connection, init_connection_pool
+from auth import hash_password, verify_password
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO if settings.debug else logging.WARNING,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Clothing Shop", debug=settings.debug)
+
+# Initialize connection pool on startup
+@app.on_event("startup")
+async def startup_event():
+    """Initialize resources on application startup."""
+    init_connection_pool()
+    logger.info("Application started successfully")
 
 # Tạo thư mục
 os.makedirs("static/css", exist_ok=True)
@@ -24,24 +42,6 @@ os.makedirs("templates/admin", exist_ok=True)
 # Mount static files and templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
-
-# Database configuration
-DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': 'Sonbui@2005',
-    'database': 'clothing_shop',
-    'charset': 'utf8mb4'
-}
-
-
-def get_db_connection():
-    try:
-        connection = mysql.connector.connect(**DB_CONFIG)
-        return connection
-    except Error as e:
-        print(f"Database connection error: {e}")
-        return None
 
 
 def get_current_user(request: Request):
@@ -75,7 +75,7 @@ async def home(request: Request):
             featured_products = cursor.fetchall()
             cursor.close()
         except Error as e:
-            print(f"Error fetching products: {e}")
+            logger.error(f"Error fetching products: {e}")
         finally:
             if db.is_connected():
                 db.close()
@@ -92,42 +92,58 @@ async def products(
         request: Request,
         category: Optional[str] = None,
         brand: Optional[str] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        page: int = 1,
+        per_page: int = 12
 ):
     current_user = get_current_user(request)
     products_list = []
     categories = []
     brands = []
+    total_products = 0
+    total_pages = 0
 
     db = get_db_connection()
     if db:
         try:
             cursor = db.cursor(dictionary=True)
 
+            # Build base query
             query = """
                     SELECT sp.*, dm.ten as ten_danhmuc, th.ten as ten_thuonghieu
                     FROM sanpham sp
                              LEFT JOIN danhmuc dm ON sp.maDM = dm.maDM
                              LEFT JOIN thuonghieu th ON sp.maTH = th.maTH
-                    WHERE 1 = 1 \
+                    WHERE 1 = 1
                     """
+            count_query = "SELECT COUNT(*) as total FROM sanpham sp LEFT JOIN danhmuc dm ON sp.maDM = dm.maDM LEFT JOIN thuonghieu th ON sp.maTH = th.maTH WHERE 1 = 1"
             params = []
 
             if category:
                 query += " AND dm.ten = %s"
+                count_query += " AND dm.ten = %s"
                 params.append(category)
 
             if brand:
                 query += " AND th.ten = %s"
+                count_query += " AND th.ten = %s"
                 params.append(brand)
 
             if search:
                 query += " AND sp.ten LIKE %s"
+                count_query += " AND sp.ten LIKE %s"
                 params.append(f"%{search}%")
 
-            query += " ORDER BY sp.maSP DESC"
+            # Get total count
+            cursor.execute(count_query, params)
+            total_products = cursor.fetchone()['total']
+            total_pages = (total_products + per_page - 1) // per_page
 
-            cursor.execute(query, params)
+            # Add pagination
+            offset = (page - 1) * per_page
+            query += " ORDER BY sp.maSP DESC LIMIT %s OFFSET %s"
+            
+            cursor.execute(query, params + [per_page, offset])
             products_list = cursor.fetchall()
 
             cursor.execute("SELECT ten FROM danhmuc")
@@ -139,7 +155,7 @@ async def products(
             cursor.close()
 
         except Error as e:
-            print(f"Error: {e}")
+            logger.error(f"Error fetching products: {e}")
         finally:
             if db.is_connected():
                 db.close()
@@ -152,7 +168,10 @@ async def products(
         "brands": brands,
         "selected_category": category,
         "selected_brand": brand,
-        "search_query": search
+        "search_query": search,
+        "page": page,
+        "total_pages": total_pages,
+        "total_products": total_products
     })
 
 
@@ -175,7 +194,7 @@ async def product_detail(request: Request, product_id: int):
             product = cursor.fetchone()
             cursor.close()
         except Error as e:
-            print(f"Error: {e}")
+            logger.error(f"Error fetching product detail: {e}")
         finally:
             if db.is_connected():
                 db.close()
@@ -203,6 +222,7 @@ async def login(
 ):
     db = get_db_connection()
     if not db:
+        logger.error("Database connection failed during login")
         return templates.TemplateResponse("login.html", {
             "request": request,
             "error": "Database connection failed"
@@ -214,19 +234,21 @@ async def login(
         user = cursor.fetchone()
         cursor.close()
 
-        if user and user['matKhau'] == password:
+        if user and verify_password(password, user['matKhau']):
             response = RedirectResponse(url="/", status_code=302)
-            response.set_cookie(key="user_id", value=str(user['maND']))
-            response.set_cookie(key="username", value=username)
-            response.set_cookie(key="role", value=user['vaiTro'])
+            response.set_cookie(key="user_id", value=str(user['maND']), httponly=True, samesite="lax")
+            response.set_cookie(key="username", value=username, httponly=True, samesite="lax")
+            response.set_cookie(key="role", value=user['vaiTro'], httponly=True, samesite="lax")
+            logger.info(f"User {username} logged in successfully")
             return response
         else:
+            logger.warning(f"Failed login attempt for username: {username}")
             return templates.TemplateResponse("login.html", {
                 "request": request,
                 "error": "Tên đăng nhập hoặc mật khẩu không đúng"
             })
     except Error as e:
-        print(f"Error: {e}")
+        logger.error(f"Login error: {e}")
         return templates.TemplateResponse("login.html", {
             "request": request,
             "error": "Đăng nhập thất bại"
@@ -256,6 +278,13 @@ async def register(
             "error": "Mật khẩu xác nhận không khớp"
         })
 
+    # Validate password strength
+    if len(password) < 6:
+        return templates.TemplateResponse("register.html", {
+            "request": request,
+            "error": "Mật khẩu phải có ít nhất 6 ký tự"
+        })
+
     db = get_db_connection()
     if not db:
         return templates.TemplateResponse("register.html", {
@@ -273,22 +302,26 @@ async def register(
                 "error": "Tên đăng nhập đã tồn tại"
             })
 
+        # Hash the password before storing
+        hashed_password = hash_password(password)
+
         cursor.execute("""
                        INSERT INTO nguoidung (tenDangNhap, matKhau, ten, soDienThoai, vaiTro)
                        VALUES (%s, %s, %s, %s, 'USER')
-                       """, (username, password, fullname, phone))
+                       """, (username, hashed_password, fullname, phone))
 
         user_id = cursor.lastrowid
         cursor.execute("INSERT INTO khachhang (maND) VALUES (%s)", (user_id,))
 
         db.commit()
+        logger.info(f"New user registered: {username}")
 
         response = RedirectResponse(url="/login", status_code=302)
         return response
 
     except Error as e:
         db.rollback()
-        print(f"Error: {e}")
+        logger.error(f"Registration error: {e}")
         return templates.TemplateResponse("register.html", {
             "request": request,
             "error": "Đăng ký thất bại"
@@ -328,7 +361,7 @@ async def profile_page(request: Request):
             user_details = cursor.fetchone()
             cursor.close()
         except Error as e:
-            print(f"Error fetching user profile: {e}")
+            logger.error(f"Error fetching user profile: {e}")
         finally:
             if db.is_connected():
                 db.close()
@@ -365,7 +398,7 @@ async def edit_profile_page(request: Request):
             user_details = cursor.fetchone()
             cursor.close()
         except Error as e:
-            print(f"Lỗi khi lấy thông tin user để sửa: {e}")
+            logger.error(f"Error fetching user details for edit: {e}")
         finally:
             if db.is_connected():
                 db.close()
@@ -405,7 +438,7 @@ async def handle_edit_profile(
         db.commit()  # Lưu thay đổi
         cursor.close()
     except Error as e:
-        print(f"Lỗi khi cập nhật profile: {e}")
+        logger.error(f"Error updating profile: {e}")
         db.rollback()  # Hoàn tác nếu có lỗi
     finally:
         if db.is_connected():
@@ -455,7 +488,7 @@ async def cart_page(request: Request):
             cursor.close()
 
         except Error as e:
-            print(f"Error fetching cart: {e}")
+            logger.error(f"Error fetching cart: {e}")
         finally:
             if db.is_connected():
                 db.close()
@@ -516,7 +549,7 @@ async def add_to_cart(
             cursor.close()
 
         except Error as e:
-            print(f"Error adding to cart: {e}")
+            logger.error(f"Error adding to cart: {e}")
         finally:
             if db.is_connected():
                 db.close()
@@ -571,7 +604,7 @@ async def update_cart_item(
         cursor.close()
 
     except Error as e:
-        print(f"Error updating cart: {e}")
+        logger.error(f"Error updating cart: {e}")
         db.rollback()
     finally:
         if db.is_connected():
@@ -604,7 +637,7 @@ async def remove_from_cart(
         cursor.close()
 
     except Error as e:
-        print(f"Error removing from cart: {e}")
+        logger.error(f"Error removing from cart: {e}")
         db.rollback()
     finally:
         if db.is_connected():
@@ -626,11 +659,12 @@ def find_available_port(start_port=8000, max_port=8010):
 
 
 if __name__ == "__main__":
-    port = find_available_port()
-    print(f"   Starting Clothing Shop on http://localhost:{port}")
+    port = find_available_port(settings.port, settings.port + 10)
+    logger.info(f"Starting Clothing Shop on http://{settings.host}:{port}")
+    print(f"   Starting Clothing Shop on http://{settings.host}:{port}")
     print(f"   Available routes:")
-    print(f"   http://localhost:{port} - Trang chủ")
-    print(f"   http://localhost:{port}/products - Sản phẩm")
-    print(f"   http://localhost:{port}/login - Đăng nhập")
-    print(f"   http://localhost:{port}/register - Đăng ký")
-    uvicorn.run(app, host="127.0.0.1", port=port, reload=True)
+    print(f"   http://{settings.host}:{port} - Trang chủ")
+    print(f"   http://{settings.host}:{port}/products - Sản phẩm")
+    print(f"   http://{settings.host}:{port}/login - Đăng nhập")
+    print(f"   http://{settings.host}:{port}/register - Đăng ký")
+    uvicorn.run(app, host=settings.host, port=port, reload=settings.debug)

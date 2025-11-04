@@ -1,16 +1,47 @@
 # Bỏ môi trường ảo
 .venv/
 venv/
+env/
+ENV/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
 
 # IDE
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
 
 # File môi trường
 .env
+.env.local
 
 # File tạm
 *.log
 *.sqlite3
+*.db
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test coverage
+htmlcov/
+.coverage
+.pytest_cache/
+.tox/
+
+# Build files
+dist/
+build/
+*.egg-info/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
