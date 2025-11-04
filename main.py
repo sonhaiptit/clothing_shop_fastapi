@@ -296,6 +296,11 @@ async def login(
             # Set cookies with security flags
             # Note: secure=True should be enabled in production with HTTPS
             cookie_secure = not settings.debug  # Only set secure flag in production
+            
+            # Use username from database (validated) instead of user input for cookie
+            # This prevents any potential cookie injection attacks
+            validated_username = user['tenDangNhap']
+            
             response.set_cookie(
                 key="user_id", 
                 value=str(user['maND']), 
@@ -305,7 +310,7 @@ async def login(
             )
             response.set_cookie(
                 key="username", 
-                value=username, 
+                value=validated_username,  # Use database value, not user input
                 httponly=True, 
                 samesite="lax",
                 secure=cookie_secure
@@ -317,7 +322,7 @@ async def login(
                 samesite="lax",
                 secure=cookie_secure
             )
-            logger.info(f"User {username} logged in successfully")
+            logger.info(f"User {validated_username} logged in successfully")
             return response
         else:
             logger.warning(f"Failed login attempt for username: {username}")
