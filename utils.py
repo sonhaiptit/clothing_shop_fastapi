@@ -3,6 +3,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 from collections import defaultdict
 import threading
+import re
 
 
 class SimpleRateLimiter:
@@ -121,8 +122,6 @@ def sanitize_filename(filename: str) -> str:
     Returns:
         Sanitized filename
     """
-    # Remove dangerous characters
-    import re
     filename = re.sub(r'[^\w\s.-]', '', filename)
     filename = filename.strip()
     return filename
