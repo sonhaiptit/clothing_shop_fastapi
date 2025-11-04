@@ -293,9 +293,30 @@ async def login(
 
         if user and verify_password(password, user['matKhau']):
             response = RedirectResponse(url="/", status_code=302)
-            response.set_cookie(key="user_id", value=str(user['maND']), httponly=True, samesite="lax")
-            response.set_cookie(key="username", value=username, httponly=True, samesite="lax")
-            response.set_cookie(key="role", value=user['vaiTro'], httponly=True, samesite="lax")
+            # Set cookies with security flags
+            # Note: secure=True should be enabled in production with HTTPS
+            cookie_secure = not settings.debug  # Only set secure flag in production
+            response.set_cookie(
+                key="user_id", 
+                value=str(user['maND']), 
+                httponly=True, 
+                samesite="lax",
+                secure=cookie_secure
+            )
+            response.set_cookie(
+                key="username", 
+                value=username, 
+                httponly=True, 
+                samesite="lax",
+                secure=cookie_secure
+            )
+            response.set_cookie(
+                key="role", 
+                value=user['vaiTro'], 
+                httponly=True, 
+                samesite="lax",
+                secure=cookie_secure
+            )
             logger.info(f"User {username} logged in successfully")
             return response
         else:

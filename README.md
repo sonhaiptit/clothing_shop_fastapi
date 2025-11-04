@@ -156,12 +156,19 @@ clothing_shop_fastapi/
 ## Security Features
 
 - ✅ Password hashing with bcrypt
-- ✅ Secure cookie handling (httponly, samesite)
+- ✅ Secure cookie handling (httponly, samesite, secure in production)
 - ✅ SQL injection prevention with parameterized queries
 - ✅ Environment-based configuration
 - ✅ Connection pooling for database
 - ✅ Input validation with Pydantic
+- ✅ Rate limiting (5 login attempts/5min, 3 registrations/hour)
 - ✅ Proper error logging
+
+**Important for Production:**
+- Set `DEBUG=False` in .env
+- Use HTTPS in production (required for secure cookies)
+- Change `SECRET_KEY` to a strong random value
+- Enable secure cookie flag (automatically enabled when DEBUG=False)
 
 ## Development
 
