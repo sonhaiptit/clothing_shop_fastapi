@@ -104,13 +104,27 @@ def validate_phone_number(phone: str) -> bool:
     if not phone.isdigit():
         return False
     
-    # Check length (Vietnamese phone numbers are 10-11 digits)
+    # Vietnamese mobile numbers are 10 digits, landlines can be 10-11
     if len(phone) < 10 or len(phone) > 11:
         return False
     
-    # Check if starts with valid prefix
-    valid_prefixes = ['03', '05', '07', '08', '09']
-    return any(phone.startswith(prefix) for prefix in valid_prefixes)
+    # Check if starts with valid prefix for mobile numbers (10 digits)
+    if len(phone) == 10:
+        # Modern mobile prefixes (03x, 05x, 07x, 08x, 09x series)
+        # Also includes old 012x prefix (still in use but being phased out)
+        valid_prefixes = [
+            '012',  # Old prefix (being phased out)
+            '032', '033', '034', '035', '036', '037', '038', '039',
+            '056', '058', '059',
+            '070', '076', '077', '078', '079',
+            '081', '082', '083', '084', '085', '086', '088', '089',
+            '090', '091', '092', '093', '094', '096', '097', '098', '099'
+        ]
+        return any(phone.startswith(prefix) for prefix in valid_prefixes)
+    
+    # For 11 digit numbers, allow if starts with valid area code
+    # This is a simplified check - can be expanded for landlines
+    return phone[0] == '0'
 
 
 def sanitize_filename(filename: str) -> str:

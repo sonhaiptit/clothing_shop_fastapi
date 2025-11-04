@@ -84,22 +84,22 @@ class SecurityChecker:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     content = f.read()
                     
-                    # Look for string formatting in SQL queries
-                    sql_format_patterns = [
-                        r'execute\([^)]*%[^)]*\)',  # Should be using %s with params
-                        r'execute\([^)]*f["\']',     # f-strings in SQL (dangerous)
-                        r'execute\([^)]*\+',         # String concatenation (dangerous)
-                    ]
+                    # Look for dangerous SQL patterns (not parameterized queries)
+                    # Dangerous: f-strings in SQL
+                    if re.search(r'execute\([^)]*f["\'].*SELECT|INSERT|UPDATE|DELETE', content):
+                        self.warnings.append(f"Possible f-string in SQL query in {file_path}")
+                        found_issues = True
                     
-                    for pattern in sql_format_patterns:
-                        if re.search(pattern, content):
-                            # Check if it's using parameterized queries correctly
-                            if 'execute(' in content and ', (' in content:
-                                continue  # Likely using parameterized queries
-                            
-                            self.warnings.append(f"Potential SQL injection risk in {file_path}")
-                            found_issues = True
-                            break
+                    # Dangerous: String concatenation with +
+                    if re.search(r'execute\([^)]*[\'"][^\'"]*\+', content):
+                        self.warnings.append(f"Possible string concatenation in SQL in {file_path}")
+                        found_issues = True
+                    
+                    # Dangerous: % formatting (not %s placeholders)
+                    if re.search(r'[\'"].*(?:SELECT|INSERT|UPDATE|DELETE).*%\s*\(', content):
+                        self.warnings.append(f"Possible % formatting in SQL in {file_path}")
+                        found_issues = True
+                        
             except Exception as e:
                 pass
         

@@ -1,6 +1,6 @@
 import json
 import logging
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, Request, Form, HTTPException, Depends
@@ -11,14 +11,13 @@ from mysql.connector import Error
 import os
 import uvicorn
 import socket
+from contextlib import asynccontextmanager
 
 # Import custom modules
 from config import settings
 from db import get_db_connection, init_connection_pool
 from auth import hash_password, verify_password
 from utils import login_limiter, register_limiter
-
-from contextlib import asynccontextmanager
 
 # Configure logging
 logging.basicConfig(
@@ -729,15 +728,15 @@ async def remove_from_cart(
     return RedirectResponse(url="/cart", status_code=302)
 
 
-def find_available_port(start_port=8000, max_port=8010) -> int:
+def find_available_port(start_port: int = 8000, max_port: int = 8010) -> int:
     """Find an available port to run the server.
     
     Args:
-        start_port: Starting port number to check
-        max_port: Maximum port number to check
+        start_port: Starting port number to check (default 8000)
+        max_port: Maximum port number to check (default 8010)
         
     Returns:
-        Available port number
+        Available port number, or start_port if none found
     """
     for port in range(start_port, max_port + 1):
         try:
